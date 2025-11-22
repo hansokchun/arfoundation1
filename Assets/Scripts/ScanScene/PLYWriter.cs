@@ -8,12 +8,7 @@ using System.Text;
 /// </summary>
 public class PLYWriter
 {
-    /// <summary>
-    /// 지정된 경로에 포인트 클라우드 데이터를 .ply 파일로 저장합니다.
-    /// </summary>
-    /// <param name="filePath">저장할 전체 파일 경로 (예: C:/.../scan.ply)</param>
-    /// <param name="points">저장할 3D 점들의 리스트</param>
-    /// <param name="colors">저장할 색상 정보 리스트</param>
+
     public void SaveToPLY(string filePath, List<Vector3> points, List<Color32> colors)
     {
         if (points == null || points.Count == 0)
@@ -32,7 +27,6 @@ public class PLYWriter
         {
             StringBuilder sb = new StringBuilder();
 
-            // PLY 헤더 작성
             sb.AppendLine("ply");
             sb.AppendLine("format ascii 1.0");
             sb.AppendLine($"element vertex {points.Count}");
@@ -44,7 +38,6 @@ public class PLYWriter
             sb.AppendLine("property uchar blue");
             sb.AppendLine("end_header");
 
-            // 데이터 작성
             for (int i = 0; i < points.Count; i++)
             {
                 Vector3 p = points[i];
@@ -61,4 +54,3 @@ public class PLYWriter
         }
     }
 }
-

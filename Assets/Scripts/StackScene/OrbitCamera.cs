@@ -2,11 +2,13 @@ using UnityEngine;
 using UnityEngine.EventSystems;
 
 /// <summary>
-/// 배경을 드래그하여 시점을 회전시키고 핀치 줌을 지원하는 카메라 (모바일 터치 버전)
+/// 타겟을 중심으로 회전하며 핀치 줌을 지원하는 카메라 컨트롤러입니다.
+/// 모바일 터치 제스처(드래그, 핀치)와 에디터 마우스 입력을 모두 지원합니다.
 /// </summary>
 public class OrbitCamera : MonoBehaviour
 {
     public Transform target;
+    
     [Header("Camera Settings")]
     public float distance = 5.0f;
     public float xSpeed = 120.0f;
@@ -29,6 +31,7 @@ public class OrbitCamera : MonoBehaviour
             this.enabled = false;
             return;
         }
+        
         Vector3 angles = transform.eulerAngles;
         x = angles.y;
         y = angles.x;
@@ -36,24 +39,19 @@ public class OrbitCamera : MonoBehaviour
 
     void LateUpdate()
     {
-        if (target == null) return;
+        if (!this.enabled || target == null) return;
 
-        // ▼▼▼ 마우스 대신 터치 입력으로 카메라 제어 ▼▼▼
-
-        // 1. 회전 (한 손가락 드래그)
+        // 1. 모바일 터치 입력 처리
         if (Input.touchCount == 1 && Input.GetTouch(0).phase == TouchPhase.Moved)
         {
             Touch touch = Input.GetTouch(0);
-            // UI를 터치하고 있다면 카메라 회전 안함
             if (EventSystem.current.IsPointerOverGameObject(touch.fingerId)) return;
 
             Vector2 touchDeltaPosition = touch.deltaPosition;
-            x += touchDeltaPosition.x * xSpeed * 0.002f; // 터치 감도 조절
+            x += touchDeltaPosition.x * xSpeed * 0.002f;
             y -= touchDeltaPosition.y * ySpeed * 0.002f;
         }
-
-        // 2. 줌 (두 손가락 핀치 줌)
-        if (Input.touchCount == 2)
+        else if (Input.touchCount == 2)
         {
             Touch touchZero = Input.GetTouch(0);
             Touch touchOne = Input.GetTouch(1);
@@ -65,28 +63,33 @@ public class OrbitCamera : MonoBehaviour
             float touchDeltaMag = (touchZero.position - touchOne.position).magnitude;
 
             float deltaMagnitudeDiff = prevTouchDeltaMag - touchDeltaMag;
-            distance += deltaMagnitudeDiff * zoomSpeed * 0.01f; // 터치 감도 조절
+            distance += deltaMagnitudeDiff * zoomSpeed * 0.01f;
         }
 
-        // ▼▼▼ PC 에디터 테스트를 위한 마우스 입력 (선택사항) ▼▼▼
+        // 2. 에디터 마우스 입력 처리 (테스트용)
 #if UNITY_EDITOR
-        if (Input.GetMouseButton(0))
+        if (Input.touchCount == 0) 
         {
-            if (Input.touchCount == 0) // 터치가 없을 때만 마우스 작동
+            if (Input.GetMouseButton(0))
             {
                 if (EventSystem.current.IsPointerOverGameObject()) return;
                 x += Input.GetAxis("Mouse X") * xSpeed * 0.02f;
                 y -= Input.GetAxis("Mouse Y") * ySpeed * 0.02f;
             }
+            distance -= Input.GetAxis("Mouse ScrollWheel") * 2f;
         }
-        distance -= Input.GetAxis("Mouse ScrollWheel") * 2f;
 #endif
 
         UpdateCameraPosition();
     }
 
+    /// <summary>
+    /// 계산된 회전값(x, y)과 거리(distance)를 기반으로 카메라의 최종 위치와 회전을 갱신합니다.
+    /// </summary>
     void UpdateCameraPosition()
     {
+        
+
         y = ClampAngle(y, yMinLimit, yMaxLimit);
         distance = Mathf.Clamp(distance, distanceMin, distanceMax);
 
@@ -105,4 +108,3 @@ public class OrbitCamera : MonoBehaviour
         return Mathf.Clamp(angle, min, max);
     }
 }
-

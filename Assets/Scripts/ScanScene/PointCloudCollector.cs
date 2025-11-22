@@ -5,39 +5,39 @@ using System.Collections.Generic;
 using System;
 
 /// <summary>
-/// ARKit의 포인트 클라우드 데이터를 수집하고 관리합니다. (시작/중지 토글 방식)
-/// Feature Points + Plane Mesh + Depth Data를 모두 활용하여 평면도 스캔합니다.
+/// AR Feature Points, Plane Mesh, Depth(LiDAR) 데이터를 통합하여 
+/// 컬러 포인트 클라우드를 수집하고 생성하는 매니저 클래스입니다.
 /// </summary>
 public class PointCloudCollector : MonoBehaviour
 {
     [Header("AR Managers")]
     [SerializeField] private ARPointCloudManager pointCloudManager;
     [SerializeField] private ARCameraManager cameraManager;
-    [SerializeField] private ARPlaneManager planeManager; // 평면 감지 추가
-    [SerializeField] private AROcclusionManager occlusionManager; // Depth 데이터 추가
+    [SerializeField] private ARPlaneManager planeManager;
+    [SerializeField] private AROcclusionManager occlusionManager;
     [SerializeField] private Camera arCamera;
     
     [Header("Scan Settings")]
-    [SerializeField] private bool useFeaturePoints = true; // 특징점 사용
-    [SerializeField] private bool usePlaneMesh = true; // 평면 메쉬 사용
-    [SerializeField] private bool useDepthData = true; // LiDAR Depth 사용
-    [SerializeField] private int depthSamplingStep = 4; // Depth 샘플링 간격 (성능 조절)
-    [SerializeField] private float planeMeshResolution = 0.05f; // 평면 메쉬의 점 간격 (미터)
+    [SerializeField] private bool useFeaturePoints = true;
+    [SerializeField] private bool usePlaneMesh = true;
+    [SerializeField] private bool useDepthData = true;
+    [SerializeField] private int depthSamplingStep = 4;
+    [SerializeField] private float planeMeshResolution = 0.05f;
 
-    // --- 수집된 데이터 ---
     public List<Vector3> Points { get; private set; } = new List<Vector3>();
     public List<Color32> Colors { get; private set; } = new List<Color32>();
 
-    // ARKit 데이터 덩어리 관리 (중복 방지)
     private Dictionary<TrackableId, List<Vector3>> trackedPoints = new Dictionary<TrackableId, List<Vector3>>();
-    private HashSet<Vector3> addedPoints = new HashSet<Vector3>(); // 중복 점 방지
+    private HashSet<Vector3> addedPoints = new HashSet<Vector3>(); 
     private Texture2D cameraTexture;
 
-    // --- 스캔 상태 ---
     private bool isScanning = false;
-    public bool IsScanning => isScanning; // 외부에서 현재 스캔 중인지 확인할 수 있도록 속성 추가
+    public bool IsScanning => isScanning; 
     private Action onScanComplete;
 
+    // --------------------------------------------------------------------------
+    // 라이프사이클 및 초기화
+    // --------------------------------------------------------------------------
     void OnEnable()
     {
         if (pointCloudManager != null && useFeaturePoints)
@@ -56,12 +56,16 @@ public class PointCloudCollector : MonoBehaviour
             planeManager.planesChanged -= OnPlanesChanged;
     }
 
+    // --------------------------------------------------------------------------
+    // 공개 API (스캔 제어)
+    // --------------------------------------------------------------------------
+
     /// <summary>
-    /// 스캔을 시작합니다.
+    /// 스캔을 시작하고 이전 데이터를 초기화합니다. Depth 모드가 활성화된 경우 최적 설정을 요청합니다.
     /// </summary>
     public void StartScan(Action onComplete = null)
     {
-        if (isScanning) return; // 이미 스캔 중이면 무시
+        if (isScanning) return; 
 
         Points.Clear();
         Colors.Clear();
@@ -71,43 +75,40 @@ public class PointCloudCollector : MonoBehaviour
         isScanning = true;
         onScanComplete = onComplete;
         
-        // Depth 데이터 활성화
         if (occlusionManager != null && useDepthData)
         {
             occlusionManager.requestedEnvironmentDepthMode = EnvironmentDepthMode.Best;
-            Debug.Log("Depth 모드 활성화됨");
         }
         
-        Debug.Log($"스캔 시작 - Feature Points: {useFeaturePoints}, Plane Mesh: {usePlaneMesh}, Depth: {useDepthData}");
+        Debug.Log($"Scan Started - Feature: {useFeaturePoints}, Plane: {usePlaneMesh}, Depth: {useDepthData}");
     }
 
     /// <summary>
-    /// 스캔을 중지하고 데이터를 최종 정리합니다.
+    /// 스캔을 중지하고, 최종적으로 수집된 좌표들에 색상을 입히는 후처리 작업을 수행합니다.
     /// </summary>
-// (100번째 줄 근처) 이 코드로 덮어쓰세요:
-    public void StopScan(Action onCompleteCallback = null) // 1. = null 을 추가하여 '선택적' 인수로 변경
-        {
-            if (!isScanning) return; // 스캔 중이 아니면 무시
+    public void StopScan(Action onCompleteCallback = null) 
+    {
+        if (!isScanning) return; 
 
-            isScanning = false;
-            FinalizePointCloud(); // 최종 데이터 정리
-            Debug.Log($"스캔 중지됨. 최종 수집된 포인트 수: {Points.Count}");
+        isScanning = false;
+        FinalizePointCloud(); 
+        
+        Debug.Log($"Scan Stopped. Total Points: {Points.Count}");
 
-            // 2. 기존 onScanComplete와 NetworkManager의 콜백을 모두 호출
-            onScanComplete?.Invoke();     // (기존 코드)
-            onCompleteCallback?.Invoke(); // (NetworkManager가 보낸 콜백)
-        }
+        onScanComplete?.Invoke();     
+        onCompleteCallback?.Invoke(); 
+    }
 
-    // Update 함수에서 시간 체크 로직 제거
-    // void Update() { ... }
-
+    // --------------------------------------------------------------------------
+    // AR 이벤트 핸들러 (실시간 데이터 수집)
+    // --------------------------------------------------------------------------
     private void OnPointCloudsChanged(ARPointCloudChangedEventArgs eventArgs)
     {
-        if (!isScanning) return; // 스캔 중일 때만 데이터 처리
+        if (!isScanning) return; 
 
-        foreach (var pointCloud in eventArgs.added) { UpdateTrackedPoints(pointCloud); }
-        foreach (var pointCloud in eventArgs.updated) { UpdateTrackedPoints(pointCloud); }
-        foreach (var pointCloud in eventArgs.removed) { trackedPoints.Remove(pointCloud.trackableId); }
+        foreach (var pointCloud in eventArgs.added) UpdateTrackedPoints(pointCloud);
+        foreach (var pointCloud in eventArgs.updated) UpdateTrackedPoints(pointCloud);
+        foreach (var pointCloud in eventArgs.removed) trackedPoints.Remove(pointCloud.trackableId);
     }
 
     private void UpdateTrackedPoints(ARPointCloud pointCloud)
@@ -116,28 +117,30 @@ public class PointCloudCollector : MonoBehaviour
         trackedPoints[pointCloud.trackableId] = new List<Vector3>(pointCloud.positions);
     }
 
-    // 평면 변경 이벤트 처리
     private void OnPlanesChanged(ARPlanesChangedEventArgs eventArgs)
     {
         if (!isScanning || !usePlaneMesh) return;
 
-        // 추가되거나 업데이트된 평면의 메쉬 데이터 수집
-        foreach (var plane in eventArgs.added) { CollectPlanePoints(plane); }
-        foreach (var plane in eventArgs.updated) { CollectPlanePoints(plane); }
+        foreach (var plane in eventArgs.added) CollectPlanePoints(plane);
+        foreach (var plane in eventArgs.updated) CollectPlanePoints(plane);
     }
 
-    // 평면의 메쉬를 점으로 변환
+    // --------------------------------------------------------------------------
+    // 지오메트리 처리 로직
+    // --------------------------------------------------------------------------
+
+    /// <summary>
+    /// 감지된 평면을 격자(Grid) 형태로 샘플링하여 포인트 데이터로 변환합니다.
+    /// </summary>
     private void CollectPlanePoints(ARPlane plane)
     {
         if (plane.boundary.Length < 3) return;
 
-        // 평면의 경계 내부를 샘플링하여 점들 생성
         Vector3 center = plane.center;
         Vector2 size = plane.size;
         Quaternion rotation = plane.transform.rotation;
         Vector3 position = plane.transform.position;
 
-        // 평면을 그리드로 샘플링
         int stepsX = Mathf.Max(1, (int)(size.x / planeMeshResolution));
         int stepsY = Mathf.Max(1, (int)(size.y / planeMeshResolution));
 
@@ -151,10 +154,9 @@ public class PointCloudCollector : MonoBehaviour
                 Vector3 localPoint = new Vector3(localX, 0, localY);
                 Vector3 worldPoint = position + rotation * (center + localPoint);
                 
-                // 평면 경계 내부인지 확인
-                if (IsPointInPolygon(plane.transform.InverseTransformPoint(worldPoint), plane.boundary.ToArray())) // .ToArray() 추가
+                // 평면의 실제 경계 안에 점이 있는지 확인
+                if (IsPointInPolygon(plane.transform.InverseTransformPoint(worldPoint), plane.boundary.ToArray()))
                 {
-                    // 중복 방지를 위해 그리드 정렬된 위치 사용
                     Vector3 gridAlignedPoint = new Vector3(
                         Mathf.Round(worldPoint.x / planeMeshResolution) * planeMeshResolution,
                         Mathf.Round(worldPoint.y / planeMeshResolution) * planeMeshResolution,
@@ -167,7 +169,6 @@ public class PointCloudCollector : MonoBehaviour
         }
     }
 
-    // 점이 다각형 내부에 있는지 확인 (2D)
     private bool IsPointInPolygon(Vector3 point, Vector2[] polygon)
     {
         Vector2 p = new Vector2(point.x, point.z);
@@ -187,20 +188,27 @@ public class PointCloudCollector : MonoBehaviour
         return inside;
     }
 
+    // --------------------------------------------------------------------------
+    // 최종 데이터 병합 및 색상 매핑
+    // --------------------------------------------------------------------------
+
+    /// <summary>
+    /// 현재 카메라 프레임을 캡처하고, 수집된 모든 위치 좌표(Feature, Plane, Depth)에 색상 정보를 매핑하여 리스트를 완성합니다.
+    /// </summary>
     private void FinalizePointCloud()
     {
         if (!cameraManager.TryAcquireLatestCpuImage(out XRCpuImage image))
         {
-            Debug.LogWarning("카메라 이미지를 가져올 수 없습니다.");
             return;
         }
 
-        // 카메라 이미지 준비
+        // 카메라 이미지 텍스처 변환
         var conversionParams = new XRCpuImage.ConversionParams(image, TextureFormat.RGBA32, XRCpuImage.Transformation.MirrorY);
         if (cameraTexture == null || cameraTexture.width != conversionParams.outputDimensions.x || cameraTexture.height != conversionParams.outputDimensions.y)
         {
             cameraTexture = new Texture2D(conversionParams.outputDimensions.x, conversionParams.outputDimensions.y, TextureFormat.RGBA32, false);
         }
+        
         var rawTextureData = cameraTexture.GetRawTextureData<byte>();
         image.Convert(conversionParams, rawTextureData);
         cameraTexture.Apply();
@@ -210,7 +218,7 @@ public class PointCloudCollector : MonoBehaviour
         int textureWidth = cameraTexture.width;
         int textureHeight = cameraTexture.height;
 
-        // 1. Feature Points 추가
+        // 1. Feature Points 처리
         if (useFeaturePoints)
         {
             foreach (var pair in trackedPoints)
@@ -221,12 +229,9 @@ public class PointCloudCollector : MonoBehaviour
                     Colors.Add(GetColorForPoint(worldPos, textureColors, textureWidth, textureHeight));
                 }
             }
-            Debug.Log($"Feature Points 추가됨: {Points.Count}개");
         }
 
-        int featurePointCount = Points.Count;
-
-        // 2. Plane Mesh Points 추가
+        // 2. Plane Mesh Points 처리
         if (usePlaneMesh && addedPoints.Count > 0)
         {
             foreach (var point in addedPoints)
@@ -234,22 +239,15 @@ public class PointCloudCollector : MonoBehaviour
                 Points.Add(point);
                 Colors.Add(GetColorForPoint(point, textureColors, textureWidth, textureHeight));
             }
-            Debug.Log($"Plane Mesh Points 추가됨: {addedPoints.Count}개");
         }
 
-        int planeMeshCount = Points.Count - featurePointCount;
-
-        // 3. Depth Data 추가 (LiDAR)
+        // 3. Depth Data 처리 (빈 공간 채우기)
         if (useDepthData && occlusionManager != null)
         {
-            int depthPointCount = AddDepthPoints(textureColors, textureWidth, textureHeight);
-            Debug.Log($"Depth Points 추가됨: {depthPointCount}개");
+            AddDepthPoints(textureColors, textureWidth, textureHeight);
         }
-
-        Debug.Log($"총 수집된 포인트: {Points.Count}개 (Feature: {featurePointCount}, Plane: {planeMeshCount}, Depth: {Points.Count - featurePointCount - planeMeshCount})");
     }
 
-    // 점의 색상 가져오기
     private Color32 GetColorForPoint(Vector3 worldPos, Color32[] textureColors, int textureWidth, int textureHeight)
     {
         Vector3 screenPoint = arCamera.WorldToScreenPoint(worldPos);
@@ -257,7 +255,7 @@ public class PointCloudCollector : MonoBehaviour
         if (screenPoint.z < 0 || screenPoint.x < 0 || screenPoint.x >= textureWidth || 
             screenPoint.y < 0 || screenPoint.y >= textureHeight)
         {
-            return new Color32(127, 127, 127, 255); // 회색 (화면 밖)
+            return new Color32(127, 127, 127, 255);
         }
         
         int x = Mathf.Clamp((int)screenPoint.x, 0, textureWidth - 1);
@@ -267,46 +265,36 @@ public class PointCloudCollector : MonoBehaviour
         return textureColors[colorIndex];
     }
 
-    // Depth 데이터에서 점 추가
+    /// <summary>
+    /// 화면 전체의 Depth 맵을 샘플링하여 포인트 클라우드에 추가합니다. (LiDAR 활용)
+    /// </summary>
     private int AddDepthPoints(Color32[] textureColors, int textureWidth, int textureHeight)
     {
         if (occlusionManager == null) return 0;
 
-        // Environment Depth 텍스처 가져오기
         var depthTexture = occlusionManager.environmentDepthTexture;
-        if (depthTexture == null)
-        {
-            Debug.LogWarning("Depth 텍스처를 사용할 수 없습니다. LiDAR가 지원되는 기기인지 확인하세요.");
-            return 0;
-        }
+        if (depthTexture == null) return 0;
 
         int depthWidth = depthTexture.width;
         int depthHeight = depthTexture.height;
         int addedCount = 0;
+        
+        var raycastManager = FindObjectOfType<ARRaycastManager>();
 
-        // Depth 텍스처를 샘플링하여 3D 점 생성
         for (int y = 0; y < depthHeight; y += depthSamplingStep)
         {
             for (int x = 0; x < depthWidth; x += depthSamplingStep)
             {
-                // 정규화된 화면 좌표
                 float normalizedX = x / (float)depthWidth;
                 float normalizedY = y / (float)depthHeight;
 
-                // Depth 값 가져오기 (셰이더를 통해 읽어야 함)
-                // Unity의 Depth 텍스처는 셰이더에서만 직접 접근 가능
-                // 대신 카메라의 역투영을 사용
-                
-                Vector2 screenPos = new Vector2(normalizedX * Screen.width, normalizedY * Screen.height);
-                Ray ray = arCamera.ScreenPointToRay(screenPos);
-                
-                // ARFoundation의 Raycast를 사용하여 실제 depth 가져오기
-                List<ARRaycastHit> hits = new List<ARRaycastHit>();
-                if (TryGetDepthAt(normalizedX, normalizedY, out float depth) && depth > 0 && depth < 20f)
+                if (TryGetDepthAt(raycastManager, normalizedX, normalizedY, out float depth) && depth > 0 && depth < 20f)
                 {
+                    Vector2 screenPos = new Vector2(normalizedX * Screen.width, normalizedY * Screen.height);
+                    Ray ray = arCamera.ScreenPointToRay(screenPos);
                     Vector3 worldPoint = arCamera.transform.position + ray.direction * depth;
                     
-                    // 중복 방지
+                    // 그리드 정렬 및 중복 검사
                     Vector3 gridAlignedPoint = new Vector3(
                         Mathf.Round(worldPoint.x / (planeMeshResolution * 2)) * (planeMeshResolution * 2),
                         Mathf.Round(worldPoint.y / (planeMeshResolution * 2)) * (planeMeshResolution * 2),
@@ -327,32 +315,23 @@ public class PointCloudCollector : MonoBehaviour
         return addedCount;
     }
 
-    // Depth 값 가져오기 (근사치)
-    private bool TryGetDepthAt(float normalizedX, float normalizedY, out float depth)
+    private bool TryGetDepthAt(ARRaycastManager raycastManager, float normalizedX, float normalizedY, out float depth)
     {
         depth = 0f;
-        
-        if (occlusionManager == null || occlusionManager.environmentDepthTexture == null)
-            return false;
+        if (raycastManager == null) return false;
 
-        // ARRaycastManager를 사용한 실제 depth 측정
-        var raycastManager = FindObjectOfType<ARRaycastManager>();
-        if (raycastManager != null)
+        Vector2 screenPoint = new Vector2(normalizedX * Screen.width, normalizedY * Screen.height);
+        List<ARRaycastHit> hits = new List<ARRaycastHit>();
+        
+        if (raycastManager.Raycast(screenPoint, hits, TrackableType.Depth))
         {
-            Vector2 screenPoint = new Vector2(normalizedX * Screen.width, normalizedY * Screen.height);
-            List<ARRaycastHit> hits = new List<ARRaycastHit>();
-            
-            if (raycastManager.Raycast(screenPoint, hits, TrackableType.Depth))
+            if (hits.Count > 0)
             {
-                if (hits.Count > 0)
-                {
-                    depth = hits[0].distance;
-                    return true;
-                }
+                depth = hits[0].distance;
+                return true;
             }
         }
 
         return false;
     }
 }
-
